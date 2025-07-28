@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("Extracteur itératif de profils LinkedIn")
+st.title("Extracteur itératif de profils LinkedIn - nettoyage Relation & Titre")
 
 # Initialisation mémoire session
 if "profiles" not in st.session_state:
@@ -13,16 +13,35 @@ def extract_name(text):
     return match.group(1).strip() if match else ""
 
 def extract_relation(text):
-    match = re.search(r"(relation de \d+[e|ᵉ])", text)
+    # Extrait uniquement "relation de 2e" ou similaire, sans "niveau 2e"
+    match = re.search(r"(relation de \d+[e|ᵉ])", text, re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
 def extract_title(text):
-    title_match = re.search(r"\d+[e|ᵉ]\s+(.*?)(?=(\d+ abonnés|Plus de \d+ relations|Coordonnées))", text)
-    return title_match.group(1).strip() if title_match else ""
+    # On enlève la répétition "niveau 2e" en début de titre s'il y en a
+    relation_pattern = r"(relation de \d+[e|ᵉ])"
+    title_match = None
+
+    relation_search = re.search(relation_pattern, text, re.IGNORECASE)
+    if relation_search:
+        start_pos = relation_search.end()
+        substring = text[start_pos:].strip()
+        # Suppression éventuelle de "niveau 2e" en début
+        substring = re.sub(r"^niveau \d+[e|ᵉ]\s*", "", substring, flags=re.IGNORECASE)
+        # Coupe avant "Coordonnées" ou "abonnés" ou "relations"
+        end_cut = re.search(r"(Coordonnées|\d+ abonnés|Plus de \d+ relations)", substring)
+        if end_cut:
+            title_match = substring[:end_cut.start()].strip()
+        else:
+            title_match = substring.strip()
+    else:
+        title_match = ""
+
+    return title_match
 
 def extract_location(text):
-    match = re.search(r"([A-Za-zÀ-ÿ,\s]+Coordonnées)", text)
-    return match.group(1).replace("Coordonnées", "").strip() if match else ""
+    match = re.search(r"([A-Za-zÀ-ÿ,\s]+)Coordonnées", text)
+    return match.group(1).strip() if match else ""
 
 def extract_link(text):
     match = re.search(r"(https?://[^\s]+)", text)
