@@ -6,47 +6,58 @@ from io import BytesIO
 
 def parse_post(raw_text):
     """
-    Extrait Auteur, Date relative, Date absolue, et Aperçu du post
+    Parse a raw LinkedIn post text with possible messy formatting:
+    - Extracts Auteur
+    - Extracts Date relative
+    - Calculates Date absolue (approx)
+    - Extracts preview text of post (without 'Visible de tous...' mention)
     """
-    lines = raw_text.strip().split("\n")
+    text = raw_text.strip()
 
-    auteur = None
-    date_relative = None
+    # 1) Extraire la date relative, souvent de la forme "Il y a 3 jours", "3 j", "5 j •"
+    date_pattern = re.compile(r"(Il y a\s*\d+\s*(jours?|j|heures|h|minutes|m))|(\d+\s*(j|h|m))")
+    date_match = date_pattern.search(text)
 
-    # Trouver la ligne auteur (première ligne non vide)
-    for i, line in enumerate(lines):
-        if line.strip():
-            auteur = line.strip()
-            start_idx = i + 1
-            break
-    else:
-        return None  # pas trouvé
-
-    if start_idx >= len(lines):
+    if not date_match:
         return None
 
-    date_line = lines[start_idx].strip()
+    date_relative = date_match.group(0)
 
-    # Extraction propre de la date relative, sans la mention de visibilité
-    # Ex : "3 j •", "Il y a 3 jours • Visible de tous sur LinkedIn et en dehors"
-    date_relative = date_line.split("•")[0].strip()
+    # 2) Séparer le texte autour de la date relative (tout avant = auteur, tout après = post)
+    split_idx = date_match.start()
 
-    # Extraire date absolue approx
-    match = re.search(r"Il y a\s*(\d+)\s*(jour|jours|j|heures|h|minutes|m)", date_relative)
-    if match:
-        number = int(match.group(1))
-        unit = match.group(2)
+    before_date = text[:split_idx].strip()
+    after_date = text[date_match.end():].strip()
+
+    # Nettoyer l'auteur : retirer doublons (ex Ishaan PatilIshaan Patil)
+    # On prend la première ligne "avant_date" sans répétition
+
+    # Parfois auteur est écrit deux fois collé : Ishaan PatilIshaan Patil
+    # Tentative simple : on prend le mot ou groupe de mots qui se répète (séparé par espace)
+    words = before_date.split()
+    if len(words) >= 2 and before_date.startswith(words[0]*2):
+        auteur = words[0]
     else:
-        match = re.search(r"(\d+)\s*(j|h|m)", date_relative)
-        if match:
-            number = int(match.group(1))
-            unit = match.group(2)
-        else:
-            number = None
-            unit = None
+        # En général auteur est les premiers mots, on prend les 2 ou 3 premiers mots max pour le nom
+        auteur = before_date.split("\n")[0]  # au cas il y a des sauts de ligne
+        auteur = auteur.strip()
 
+    # 3) Nettoyer le post (after_date)
+    # Retirer mention "Visible de tous sur LinkedIn et en dehors" ou variantes similaires
+    after_date = re.sub(r"Visible de tous sur LinkedIn.*", "", after_date, flags=re.DOTALL).strip()
+
+    # Limiter l'aperçu à 300 caractères (ou 5 lignes max)
+    preview = after_date[:300].replace("\n", " ").strip()
+
+    # 4) Calcul date absolue (approx)
+    number, unit = None, None
+    num_match = re.search(r"\d+", date_relative)
+    unit_match = re.search(r"(jour|jours|j|heure|heures|h|minute|minutes|m)", date_relative)
+    if num_match and unit_match:
+        number = int(num_match.group())
+        unit = unit_match.group()
     now = datetime.now()
-    if number and unit:
+    if number is not None and unit is not None:
         if unit.startswith("j"):
             date_abs = now - timedelta(days=number)
         elif unit.startswith("h"):
@@ -58,19 +69,12 @@ def parse_post(raw_text):
     else:
         date_abs = None
 
-    # Contenu post = lignes après la date_line
-    post_content = lines[start_idx+1:]
-
-    # Nettoyer toute ligne qui contient "Visible de tous sur LinkedIn"
-    post_content = [l for l in post_content if not l.startswith("Visible de tous")]
-
-    # Joindre les premières lignes (ex: 5) en aperçu, nettoyé de mentions superflues
-    preview = " ".join(post_content[:5]).strip()
+    date_abs_str = date_abs.strftime("%Y-%m-%d %H:%M") if date_abs else ""
 
     return {
         "Auteur": auteur,
         "Date relative": date_relative,
-        "Date absolue": date_abs.strftime("%Y-%m-%d %H:%M") if date_abs else "",
+        "Date absolue": date_abs_str,
         "Aperçu post": preview
     }
 
@@ -83,12 +87,11 @@ def to_excel(posts_list):
     processed_data = output.getvalue()
     return processed_data
 
-st.title("Analyseur LinkedIn Posts avec Réactions")
+st.title("Analyseur LinkedIn Posts avec Réactions - Version robuste")
 
 if 'posts_data' not in st.session_state:
     st.session_state.posts_data = []
 
-# Zone de texte pour coller le post LinkedIn
 raw_post_text = st.text_area("Collez ici le texte brut d'un post LinkedIn (avec auteur, date, contenu)")
 
 if st.button("Ajouter ce post"):
