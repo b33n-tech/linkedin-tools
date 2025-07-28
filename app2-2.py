@@ -1,165 +1,196 @@
 import streamlit as st
 import pandas as pd
-import datetime
 import re
+from datetime import datetime, timedelta
+import io
 
-REACTION_TYPES = ["like", "celebrate", "love", "funny", "insightful"]
-
-def parse_reactions(raw_text):
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip() != ""]
-    results = []
-    i = 0
-    while i < len(lines):
-        reaction = lines[i].lower()
-        if reaction not in REACTION_TYPES:
-            i += 1
-            continue
-        i += 1
-        
-        if i >= len(lines):
-            break
-        name_line = lines[i]
-        name = name_line.split("Voir le profil de")[0].strip()
-        i += 1
-        
-        if i >= len(lines):
-            position = ""
-        else:
-            position = lines[i]
-            if not re.search(r"(network|niveau|et|\d+)", position, re.IGNORECASE):
-                position = ""
-            else:
-                i += 1
-        
-        info_lines = []
-        while i < len(lines) and lines[i].lower() not in REACTION_TYPES:
-            info_lines.append(lines[i])
-            i += 1
-        
-        info = " || ".join(info_lines)
-        
-        results.append({
-            "Réaction": reaction,
-            "Nom": name,
-            "Position réseau": position,
-            "Infos complémentaires": info
-        })
-    return results
+# --- Fonctions ---
 
 def parse_post_header(raw_text):
-    # Extraction auteur (première ligne)
+    # Supprime la mention "Il y a X jours • Visible de tous sur LinkedIn et en dehors"
+    raw_text = re.sub(r"Il y a \d+ (jours|j|heures|h|minutes|min|semaines|mois) • Visible de tous sur LinkedIn et en dehors", "", raw_text)
+
     lines = [line.strip() for line in raw_text.splitlines() if line.strip() != ""]
     auteur = lines[0] if len(lines) > 0 else ""
-    
-    # Trouver la date relative (ex: "3 j", "2 sem", "1 mois", "5 h", "15 min")
+
     date_relative = ""
     for l in lines:
         match = re.search(r"(\d+)\s*(j|jour|jours|h|heure|heures|min|minute|minutes|sem|semaine|semaines|mois)", l)
         if match:
             date_relative = match.group(0)
             break
-    
-    # Extraire les premières lignes du post (après date, auteur etc.)
-    # On prend par exemple les 3 premières lignes non vides après la date relative
+
+    # Extrait les premières lignes du post après la ligne avec date relative
     idx = 0
     for i, l in enumerate(lines):
         if date_relative in l:
             idx = i + 1
             break
     post_excerpt = " ".join(lines[idx:idx+3]) if idx+3 <= len(lines) else " ".join(lines[idx:])
-    
+
     return auteur, date_relative, post_excerpt
 
-def convert_relative_date_to_absolute(date_relative_str):
-    today = datetime.datetime.now()
-    if not date_relative_str:
+def convert_relative_date(date_str):
+    now = datetime.now()
+    if date_str == "":
         return ""
-    
-    # Parse number and unit
-    m = re.match(r"(\d+)\s*(j|jour|jours|h|heure|heures|min|minute|minutes|sem|semaine|semaines|mois)", date_relative_str.lower())
-    if not m:
+    try:
+        number = int(re.findall(r'\d+', date_str)[0])
+    except:
         return ""
-    
-    num = int(m.group(1))
-    unit = m.group(2)
-    
-    if unit in ["j", "jour", "jours"]:
-        delta = datetime.timedelta(days=num)
-    elif unit in ["h", "heure", "heures"]:
-        delta = datetime.timedelta(hours=num)
-    elif unit in ["min", "minute", "minutes"]:
-        delta = datetime.timedelta(minutes=num)
-    elif unit in ["sem", "semaine", "semaines"]:
-        delta = datetime.timedelta(weeks=num)
-    elif unit == "mois":
-        # approx 30 days per month
-        delta = datetime.timedelta(days=30*num)
+
+    if "j" in date_str:
+        return (now - timedelta(days=number)).strftime("%Y-%m-%d")
+    elif "h" in date_str:
+        return (now - timedelta(hours=number)).strftime("%Y-%m-%d %H:%M")
+    elif "min" in date_str:
+        return (now - timedelta(minutes=number)).strftime("%Y-%m-%d %H:%M")
+    elif "sem" in date_str:
+        return (now - timedelta(weeks=number)).strftime("%Y-%m-%d")
+    elif "mois" in date_str:
+        # Approximer un mois à 30 jours
+        return (now - timedelta(days=30*number)).strftime("%Y-%m-%d")
     else:
-        delta = datetime.timedelta(0)
-    
-    post_date = today - delta
-    return post_date.strftime("%Y-%m-%d %H:%M")
+        return ""
 
-# --- Streamlit app ---
+def parse_reactions(raw_text):
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip() != ""]
+    reactions_list = []
+    i = 0
+    reaction_types = {"like", "love", "celebrate", "funny", "support", "insightful"}
 
-st.title("Analyseur multi-posts LinkedIn avec ventilation des réactions")
+    while i < len(lines):
+        # Ligne réaction (ex: like)
+        if lines[i].lower() in reaction_types:
+            reaction = lines[i].lower()
+            i += 1
+            if i >= len(lines):
+                break
+            # Ligne nom (ex: Naman SharmaVoir le profil de Naman Sharma)
+            full_name = lines[i]
+            # Extraire nom avant "Voir le profil de"
+            name_match = re.match(r"^(.*?)Voir le profil de", full_name)
+            if name_match:
+                name = name_match.group(1).strip()
+            else:
+                name = full_name.strip()
+            i += 1
+            if i >= len(lines):
+                break
+            # Ligne position dans réseau (ex: Out of network · 3e et +)
+            position = lines[i]
+            i += 1
+            if i >= len(lines):
+                info = ""
+            else:
+                # Ligne info (ex: Founder and Content Creator at SciencEpic Nepal YouTube || Attended Gandaki College of Engineering and Science)
+                info = lines[i]
+                i += 1
 
-if "data" not in st.session_state:
-    st.session_state.data = []
+            reactions_list.append({
+                "Reaction": reaction,
+                "Nom": name,
+                "Position LK": position,
+                "Infos": info
+            })
+        else:
+            i += 1
+    return reactions_list
+
+# --- Streamlit UI ---
+
+st.title("Analyse de posts LinkedIn - extraction post et réactions")
+
+st.markdown("""
+Uploader les textes des posts LinkedIn (copier-coller brut), un par un.
+Pour chaque post, on extrait : auteur, date relative, date exacte, extrait du post.
+Ensuite, coller les réactions du post et extraire la ventilation des types de réactions avec détails.
+Ajouter plusieurs posts, puis télécharger un Excel final avec toutes les données.
+""")
+
+# DataFrames pour stocker les résultats cumulés
+if "posts_data" not in st.session_state:
+    st.session_state.posts_data = []
+if "reactions_data" not in st.session_state:
+    st.session_state.reactions_data = []
 
 with st.form("form_post"):
-    st.markdown("### Colle ici les infos du post LinkedIn (auteur, date, contenu)")
-    post_raw = st.text_area("Post brut", height=150)
-    
-    st.markdown("### Colle ici les réactions associées au post (texte brut)")
-    reactions_raw = st.text_area("Réactions brut", height=200)
-    
-    submitted = st.form_submit_button("Ajouter ce post + réactions")
+    raw_post = st.text_area("Coller le texte complet du post LinkedIn (y compris auteur, date, début du contenu)", height=150)
+    submitted_post = st.form_submit_button("Ajouter ce post")
 
-if submitted:
-    if post_raw.strip() == "" or reactions_raw.strip() == "":
-        st.warning("Merci de remplir les deux champs avant d'ajouter.")
+if submitted_post:
+    if raw_post.strip() == "":
+        st.warning("Merci de coller un texte de post valide.")
     else:
-        auteur, date_relative, post_excerpt = parse_post_header(post_raw)
-        date_absolute = convert_relative_date_to_absolute(date_relative)
-        reactions = parse_reactions(reactions_raw)
-        
-        # Pour chaque réaction, on ajoute les infos du post
-        for r in reactions:
-            r["Auteur post"] = auteur
-            r["Date relative post"] = date_relative
-            r["Date absolue post"] = date_absolute
-            r["Extrait post"] = post_excerpt
-        
-        st.session_state.data.extend(reactions)
-        st.success(f"Post ajouté avec {len(reactions)} réactions.")
+        auteur, date_rel, post_excerpt = parse_post_header(raw_post)
+        date_exacte = convert_relative_date(date_rel)
+        st.session_state.posts_data.append({
+            "Auteur": auteur,
+            "Date relative": date_rel,
+            "Date exacte": date_exacte,
+            "Extrait du post": post_excerpt
+        })
+        st.success(f"Post ajouté : {auteur} / {date_rel} / {date_exacte}")
+        st.write(post_excerpt)
 
-if st.session_state.data:
-    df_all = pd.DataFrame(st.session_state.data)
-    
-    st.markdown("### Données cumulées sur tous les posts")
-    st.dataframe(df_all)
-    
-    # Statistique par post / réaction
-    st.markdown("### Nombre de réactions par type (tous posts confondus)")
-    counts = df_all["Réaction"].value_counts().reindex(REACTION_TYPES, fill_value=0)
-    st.bar_chart(counts)
-    
-    # Option export Excel
-    def to_excel(df):
-        import io
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Reactions")
-        return output.getvalue()
-    
-    excel_data = to_excel(df_all)
+st.markdown("---")
+
+with st.form("form_reactions"):
+    raw_reactions = st.text_area("Coller les réactions d'un post LinkedIn (texte brut)", height=300)
+    submitted_reactions = st.form_submit_button("Analyser les réactions")
+
+if submitted_reactions:
+    if raw_reactions.strip() == "":
+        st.warning("Merci de coller un texte de réactions valide.")
+    else:
+        reactions_list = parse_reactions(raw_reactions)
+        if len(reactions_list) == 0:
+            st.warning("Aucune réaction détectée dans le texte.")
+        else:
+            # On associe la dernière entrée postée (sinon on pourrait demander à l'utilisateur de choisir)
+            if len(st.session_state.posts_data) == 0:
+                st.warning("Veuillez d'abord ajouter un post pour associer les réactions.")
+            else:
+                dernier_post = st.session_state.posts_data[-1]
+                # Ajouter le champ post auteur + date à chaque réaction pour suivi
+                for r in reactions_list:
+                    r["Post auteur"] = dernier_post["Auteur"]
+                    r["Post date relative"] = dernier_post["Date relative"]
+                    r["Post date exacte"] = dernier_post["Date exacte"]
+                st.session_state.reactions_data.extend(reactions_list)
+                st.success(f"{len(reactions_list)} réactions ajoutées, associées au post de {dernier_post['Auteur']}")
+
+st.markdown("---")
+
+# Affichage des données ajoutées
+if st.session_state.posts_data:
+    st.subheader("Posts ajoutés")
+    st.dataframe(pd.DataFrame(st.session_state.posts_data))
+
+if st.session_state.reactions_data:
+    st.subheader("Réactions extraites")
+    st.dataframe(pd.DataFrame(st.session_state.reactions_data))
+
+# Bouton pour télécharger fichier Excel combiné
+def to_excel(posts, reactions):
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine="xlsxwriter")
+
+    df_posts = pd.DataFrame(posts)
+    df_reactions = pd.DataFrame(reactions)
+
+    df_posts.to_excel(writer, index=False, sheet_name="Posts")
+    df_reactions.to_excel(writer, index=False, sheet_name="Réactions")
+
+    writer.save()
+    processed_data = output.getvalue()
+    return processed_data
+
+if st.session_state.posts_data or st.session_state.reactions_data:
+    excel_data = to_excel(st.session_state.posts_data, st.session_state.reactions_data)
     st.download_button(
-        label="📥 Télécharger toutes les données en Excel",
+        label="Télécharger les données Excel (Posts + Réactions)",
         data=excel_data,
         file_name="linkedin_posts_reactions.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-else:
-    st.info("Ajoute un post avec ses réactions pour commencer l'analyse.")
