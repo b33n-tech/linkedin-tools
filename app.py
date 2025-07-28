@@ -1,87 +1,77 @@
 import streamlit as st
 import pandas as pd
 import re
-from io import BytesIO
 
-st.title("Extracteur de Profil LinkedIn vers Excel")
+st.title("Extracteur d'en-tête LinkedIn")
 
-st.write("Copiez-collez le contenu brut d’un profil LinkedIn (ex: expériences, en-tête, abonnés...) ci-dessous 👇")
+input_text = st.text_area("Collez ici l’en-tête LinkedIn", height=300)
 
-input_text = st.text_area("Contenu du profil LinkedIn copié :", height=400)
+if input_text:
+    # Nettoyage initial
+    clean_text = input_text.replace("\n", " ").strip()
 
-def extract_profile_summary(text):
-    lines = text.splitlines()
+    # Fonctions de détection
+    def extract_name(text):
+        match = re.search(r"^([A-Z][a-z]+\s+[A-Z][a-z]+)", text)
+        return match.group(1).strip() if match else ""
+
+    def extract_relation(text):
+        match = re.search(r"(relation de \d+[e|ᵉ])", text)
+        return match.group(1).strip() if match else ""
+
+    def extract_title(text):
+        # Titre souvent après le nom et la relation
+        title_match = re.search(r"\d+[e|ᵉ]\s+(.*?)(?=(\d+ abonnés|Plus de \d+ relations|Coordonnées))", text)
+        return title_match.group(1).strip() if title_match else ""
+
+    def extract_location(text):
+        match = re.search(r"([A-Za-zÀ-ÿ,\s]+Coordonnées)", text)
+        return match.group(1).replace("Coordonnées", "").strip() if match else ""
+
+    def extract_link(text):
+        match = re.search(r"(https?://[^\s]+)", text)
+        return match.group(1).strip() if match else ""
+
+    def extract_followers(text):
+        match = re.search(r"(\d[\d\s]* abonnés)", text)
+        return match.group(1).strip() if match else ""
+
+    def extract_connections(text):
+        match = re.search(r"(Plus de \d+ relations)", text)
+        return match.group(1).strip() if match else ""
+
+    def extract_badge(text):
+        if "Premium" in text:
+            return "Premium"
+        elif "badgeType" in text:
+            return "Autre badge"
+        else:
+            return ""
+
+    def extract_special_status(text):
+        match = re.search(r"est une relation en commun", text)
+        return "Relation en commun" if match else ""
+
+    # Extraction
     data = {
-        "Nom ou ID LinkedIn": "",
-        "Titre": "",
-        "Nombre d’abonnés": "",
-        "Nombre de relations": "",
-        "Autre info": []
+        "Nom": extract_name(clean_text),
+        "Relation": extract_relation(clean_text),
+        "Titre": extract_title(clean_text),
+        "Localisation": extract_location(clean_text),
+        "Lien": extract_link(clean_text),
+        "Abonnés": extract_followers(clean_text),
+        "Relations": extract_connections(clean_text),
+        "Badge": extract_badge(clean_text),
+        "Autre Statut": extract_special_status(clean_text),
     }
 
-    for line in lines:
-        if "abonné" in line.lower():
-            match = re.search(r"(\d+[\d\s]*)\s*abonné", line.lower())
-            if match:
-                data["Nombre d’abonnés"] = match.group(1).strip()
+    df = pd.DataFrame([data])
+    st.dataframe(df)
 
-        elif "relation" in line.lower():
-            match = re.search(r"(\d+[\d\s]*)\s*relation", line.lower())
-            if match:
-                data["Nombre de relations"] = match.group(1).strip()
+    # Téléchargement
+    @st.cache_data
+    def convert_df(df):
+        return df.to_excel(index=False, engine='openpyxl')
 
-        elif not data["Titre"] and 2 < len(line) < 100 and not re.search(r'\d', line):
-            data["Titre"] = line.strip()
-
-        elif line.strip():
-            data["Autre info"].append(line.strip())
-
-    return pd.DataFrame([data])
-
-def extract_experiences(text):
-    experiences = []
-    blocks = text.split("\n\n")
-
-    for block in blocks:
-        lines = block.strip().split("\n")
-        if len(lines) < 2:
-            continue
-
-        job = {"Poste": "", "Dates": "", "Établissement": "", "Type contrat": "", "Lieu": ""}
-
-        for line in lines:
-            if re.search(r'(CDI|CDD|Stage|Alternance|Temps plein|Temps partiel)', line, re.IGNORECASE):
-                job["Type contrat"] = line.strip()
-            elif re.search(r'\d{4}', line):
-                job["Dates"] = line.strip()
-            elif not job["Poste"]:
-                job["Poste"] = line.strip()
-            elif not job["Établissement"]:
-                job["Établissement"] = line.strip()
-            elif "Oulu" in line or "France" in line or "," in line:
-                job["Lieu"] = line.strip()
-
-        if job["Poste"] or job["Dates"]:
-            experiences.append(job)
-
-    return pd.DataFrame(experiences)
-
-if st.button("📄 Générer le fichier Excel"):
-    if input_text.strip():
-        profile_df = extract_profile_summary(input_text)
-        experience_df = extract_experiences(input_text)
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            profile_df.to_excel(writer, sheet_name='Profil', index=False)
-            experience_df.to_excel(writer, sheet_name='Expériences', index=False)
-
-        st.success("✅ Fichier généré avec succès !")
-        st.download_button(
-            label="📥 Télécharger le fichier Excel",
-            data=output.getvalue(),
-            file_name="profil_linkedin.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.warning("⛔ Merci de coller d'abord un contenu de profil LinkedIn.")
+    excel_data = convert_df(df)
+    st.download_button("📥 Télécharger le fichier Excel", excel_data, file_name="linkedin_en_tete.xlsx")
