@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("Extracteur itératif de profils LinkedIn - version simplifiée")
+st.title("Extracteur itératif de profils LinkedIn - version améliorée localisation")
 
 # Initialisation mémoire session
 if "profiles" not in st.session_state:
@@ -25,6 +25,7 @@ def extract_title(text):
         start_pos = relation_search.end()
         substring = text[start_pos:].strip()
         substring = re.sub(r"^niveau \d+[e|ᵉ]\s*", "", substring, flags=re.IGNORECASE)
+        # On coupe avant "Coordonnées", "abonnés", "relations" s’ils apparaissent
         end_cut = re.search(r"(Coordonnées|\d+ abonnés|Plus de \d+ relations)", substring)
         if end_cut:
             title_match = substring[:end_cut.start()].strip()
@@ -36,8 +37,28 @@ def extract_title(text):
     return title_match
 
 def extract_location(text):
-    match = re.search(r"([A-Za-zÀ-ÿ,\s]+)Coordonnées", text)
-    return match.group(1).strip() if match else ""
+    # Essaie de détecter une localisation en fin de texte
+    
+    # On cherche la dernière portion après un pipe '|'
+    parts = text.split('|')
+    last_part = parts[-1].strip() if parts else ""
+    
+    if last_part and re.match(r"^[A-Za-zÀ-ÿ\s,.\-]+$", last_part) and len(last_part.split()) <= 6:
+        return last_part
+    
+    # Sinon, cherche après un double espace
+    double_space_split = re.split(r"\s{2,}", text)
+    if len(double_space_split) > 1:
+        candidate = double_space_split[-1].strip()
+        if re.match(r"^[A-Za-zÀ-ÿ\s,.\-]+$", candidate) and len(candidate.split()) <= 6:
+            return candidate
+
+    # Sinon, cherche un motif de localisation à la fin (lettres, espaces, virgules, points, tirets)
+    loc_match = re.search(r"([A-Za-zÀ-ÿ\s,.\-]{2,})$", text.strip())
+    if loc_match:
+        return loc_match.group(1).strip()
+    
+    return ""
 
 def extract_link(text):
     match = re.search(r"(https?://[^\s]+)", text)
