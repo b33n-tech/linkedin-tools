@@ -1,83 +1,87 @@
 import streamlit as st
 import pandas as pd
 import re
-import io
+from io import BytesIO
 
-st.title("Extracteur de profil LinkedIn en Excel (1 ligne synthétique)")
+st.title("Extracteur de Profil LinkedIn vers Excel")
 
-profile_text = st.text_area("📋 Collez ici le texte brut du profil LinkedIn", height=400)
+st.write("Copiez-collez le contenu brut d’un profil LinkedIn (ex: expériences, en-tête, abonnés...) ci-dessous 👇")
 
-def extract_info(text):
-    lines = text.split('\n')
+input_text = st.text_area("Contenu du profil LinkedIn copié :", height=400)
+
+def extract_profile_summary(text):
+    lines = text.splitlines()
     data = {
-        "Nom": "",
+        "Nom ou ID LinkedIn": "",
         "Titre": "",
-        "Localisation": "",
-        "Abonnés": "",
-        "Relations": "",
-        "Poste actuel": "",
-        "Employeur": "",
-        "Contrat": "",
-        "Dates": "",
-        "Lieu": "",
+        "Nombre d’abonnés": "",
+        "Nombre de relations": "",
+        "Autre info": []
     }
 
-    # Nettoyage de lignes vides
-    lines = [l.strip() for l in lines if l.strip()]
-
-    # Nom
-    if lines:
-        data["Nom"] = lines[0]
-
-    # Titre professionnel
-    for line in lines[1:4]:
-        if len(line.split()) > 3:
-            data["Titre"] = line
-            break
-
-    # Nombre d'abonnés / relations
     for line in lines:
-        if "abonnés" in line.lower():
-            data["Abonnés"] = re.search(r"(\d[\d\s]*) abonn", line).group(1).strip() if re.search(r"(\d[\d\s]*) abonn", line) else ""
-        if "relations" in line.lower():
-            data["Relations"] = re.search(r"(\d[\d\s]*) relations", line).group(1).strip() if re.search(r"(\d[\d\s]*) relations", line) else ""
+        if "abonné" in line.lower():
+            match = re.search(r"(\d+[\d\s]*)\s*abonné", line.lower())
+            if match:
+                data["Nombre d’abonnés"] = match.group(1).strip()
 
-    # Poste actuel
-    poste_ligne = ""
-    for i, line in enumerate(lines):
-        if "professor" in line.lower() or "research" in line.lower() or "ceo" in line.lower() or "founder" in line.lower():
-            poste_ligne = line
-            # On cherche l’établissement juste après
-            if i + 1 < len(lines):
-                data["Employeur"] = lines[i + 1]
-            break
-    data["Poste actuel"] = poste_ligne
+        elif "relation" in line.lower():
+            match = re.search(r"(\d+[\d\s]*)\s*relation", line.lower())
+            if match:
+                data["Nombre de relations"] = match.group(1).strip()
 
-    # Contrat et dates
-    for line in lines:
-        if "CDI" in line or "CDD" in line or "Stage" in line or "Temps plein" in line:
-            data["Contrat"] = line
-        if re.search(r"(janv|févr|mars|avr|mai|juin|juil|août|sept|oct|nov|déc).*?\d{4}", line):
-            data["Dates"] = line
-        if re.search(r"[A-Z][a-z]+, [A-Z]", line) or "Finlande" in line or "France" in line:
-            data["Lieu"] = line
+        elif not data["Titre"] and 2 < len(line) < 100 and not re.search(r'\d', line):
+            data["Titre"] = line.strip()
 
-    return data
+        elif line.strip():
+            data["Autre info"].append(line.strip())
+
+    return pd.DataFrame([data])
+
+def extract_experiences(text):
+    experiences = []
+    blocks = text.split("\n\n")
+
+    for block in blocks:
+        lines = block.strip().split("\n")
+        if len(lines) < 2:
+            continue
+
+        job = {"Poste": "", "Dates": "", "Établissement": "", "Type contrat": "", "Lieu": ""}
+
+        for line in lines:
+            if re.search(r'(CDI|CDD|Stage|Alternance|Temps plein|Temps partiel)', line, re.IGNORECASE):
+                job["Type contrat"] = line.strip()
+            elif re.search(r'\d{4}', line):
+                job["Dates"] = line.strip()
+            elif not job["Poste"]:
+                job["Poste"] = line.strip()
+            elif not job["Établissement"]:
+                job["Établissement"] = line.strip()
+            elif "Oulu" in line or "France" in line or "," in line:
+                job["Lieu"] = line.strip()
+
+        if job["Poste"] or job["Dates"]:
+            experiences.append(job)
+
+    return pd.DataFrame(experiences)
 
 if st.button("📄 Générer le fichier Excel"):
-    if profile_text:
-        extracted = extract_info(profile_text)
-        df = pd.DataFrame([extracted])
+    if input_text.strip():
+        profile_df = extract_profile_summary(input_text)
+        experience_df = extract_experiences(input_text)
 
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Profil LinkedIn')
-            writer.save()
-            st.download_button(
-                label="📥 Télécharger le fichier Excel",
-                data=buffer.getvalue(),
-                file_name="profil_linkedin.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            profile_df.to_excel(writer, sheet_name='Profil', index=False)
+            experience_df.to_excel(writer, sheet_name='Expériences', index=False)
+
+        st.success("✅ Fichier généré avec succès !")
+        st.download_button(
+            label="📥 Télécharger le fichier Excel",
+            data=output.getvalue(),
+            file_name="profil_linkedin.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     else:
-        st.warning("Merci de coller un profil avant de générer le fichier.")
+        st.warning("⛔ Merci de coller d'abord un contenu de profil LinkedIn.")
