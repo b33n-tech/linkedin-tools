@@ -5,35 +5,55 @@ import re
 
 st.title("Extraction profils LinkedIn - Organisation (Personnes)")
 
-# Fonction qui extrait des profils et descriptions
+def is_name(line):
+    # Détecte si une ligne ressemble à un nom complet (2+ mots commençant par majuscule)
+    # Exemple simple : "Ieva Gaigala"
+    return bool(re.match(r"^[A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+( [A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+)+$", line.strip()))
+
 def extract_profiles(text):
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     profiles = []
     i = 0
-    while i < len(lines):
-        # Le nom est généralement une ligne seule (ex: "Ieva Gaigala")
-        # On va détecter une ligne "Nom Prénom" ou au moins un mot avec une majuscule en début
-        # puis on collecte les lignes suivantes comme description jusqu'à la prochaine ligne qui ressemble à un nom
-        # ou la fin du texte.
-        
-        # Condition basique pour une ligne de nom : au moins un mot avec majuscule au début, peu de ponctuation
-        if re.match(r"^[A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+( [A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+)+$", lines[i]):
-            name = lines[i]
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+
+        # Ignore explicit "Utilisateur LinkedIn" profils
+        if line == "Utilisateur LinkedIn":
             i += 1
+            # On traite "Utilisateur LinkedIn" comme nom de profil (tu peux changer ici si besoin)
+            name = line
             desc_lines = []
-            while i < len(lines):
-                # Stoppe si on trouve une nouvelle ligne ressemblant à un nom
-                if re.match(r"^[A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+( [A-ZÀ-Ÿ][a-zà-ÿA-ZÀ-Ÿ\-']+)+$", lines[i]):
+            # Collecte jusqu'au prochain nom ou fin
+            i_start = i
+            while i < n and not is_name(lines[i]):
+                desc_lines.append(lines[i])
+                i += 1
+            profiles.append({"Profil": name, "Description": " | ".join(desc_lines)})
+            continue
+
+        if is_name(line):
+            name = line
+
+            # Si ligne suivante est la même => doublon immédiat, on saute la suivante
+            if i + 1 < n and lines[i + 1] == line:
+                i += 2
+            else:
+                i += 1
+
+            desc_lines = []
+            while i < n:
+                if is_name(lines[i]) or lines[i] == "Utilisateur LinkedIn":
                     break
                 desc_lines.append(lines[i])
                 i += 1
+
             description = " | ".join(desc_lines)
             profiles.append({"Profil": name, "Description": description})
         else:
             i += 1
     return profiles
 
-# Interface
 input_text = st.text_area("Collez le texte brut de la page 'Personnes' LinkedIn", height=400)
 
 if st.button("Extraire et générer XLSX"):
