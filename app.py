@@ -1,103 +1,83 @@
 import streamlit as st
 import pandas as pd
 import re
-from io import BytesIO
+import io
 
-st.set_page_config(page_title="Extractor LinkedIn vers Excel")
+st.title("Extracteur de profil LinkedIn en Excel (1 ligne synthétique)")
 
-st.title("📄 LinkedIn ➜ Excel Extractor")
-st.write("Copiez-collez ici un profil LinkedIn brut (texte copié directement depuis la page).")
+profile_text = st.text_area("📋 Collez ici le texte brut du profil LinkedIn", height=400)
 
-input_text = st.text_area("📝 Coller ici le texte brut du profil", height=400)
+def extract_info(text):
+    lines = text.split('\n')
+    data = {
+        "Nom": "",
+        "Titre": "",
+        "Localisation": "",
+        "Abonnés": "",
+        "Relations": "",
+        "Poste actuel": "",
+        "Employeur": "",
+        "Contrat": "",
+        "Dates": "",
+        "Lieu": "",
+    }
 
-def extract_experiences(text):
-    experiences = []
-    blocks = re.split(r'\n\s*\n', text)  # Séparation brute en blocs
-    for block in blocks:
-        if any(word in block for word in ['févr.', 'janv.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.', 'aujourd’hui']):
-            poste = re.findall(r'^(.+?)\n', block)
-            poste = poste[0].strip() if poste else ""
-            dates = re.findall(r'(de|Du)\s([^\n]+?)\sà\s([^\n]+?)\s·\s([0-9a-zA-Z\s]+)', block)
-            if dates:
-                debut = dates[0][1]
-                fin = dates[0][2]
-                durée = dates[0][3]
-            else:
-                debut, fin, durée = "", "", ""
-            contrat = 'CDI' if 'CDI' in block else ('CDD' if 'CDD' in block else '')
-            employeur = ""
-            lines = block.split('\n')
-            for line in lines:
-                if "University" in line or "Company" in line or "Lab" in line:
-                    employeur = line.strip()
-                    break
-            experiences.append({
-                'Poste': poste,
-                'Employeur': employeur,
-                'Type de contrat': contrat,
-                'Date de début': debut,
-                'Date de fin': fin,
-                'Durée': durée
-            })
-    return pd.DataFrame(experiences)
+    # Nettoyage de lignes vides
+    lines = [l.strip() for l in lines if l.strip()]
 
-def extract_education(text):
-    education = []
-    edu_blocks = re.findall(r'(.+University.+|.+École.+|.+Institute.+)\n(.+)\n([0-9]{4}.*[0-9]{4}|[0-9]{4} - aujourd’hui)', text)
-    for school, degree, date in edu_blocks:
-        education.append({
-            'Établissement': school.strip(),
-            'Diplôme': degree.strip(),
-            'Période': date.strip()
-        })
-    return pd.DataFrame(education)
+    # Nom
+    if lines:
+        data["Nom"] = lines[0]
 
-def extract_languages(text):
-    langs = []
-    matches = re.findall(r'([A-Za-zéèàêî ]+)\n(Capacité.*?|Compétence.*?|Bilingue.*?|Natif.*?)\n', text)
-    for lang, level in matches:
-        langs.append({
-            'Langue': lang.strip(),
-            'Niveau': level.strip()
-        })
-    return pd.DataFrame(langs)
+    # Titre professionnel
+    for line in lines[1:4]:
+        if len(line.split()) > 3:
+            data["Titre"] = line
+            break
 
-def extract_awards(text):
-    awards = []
-    matches = re.findall(r'(.+Award.+)\n(.+)\n(janv\.|févr\.|mars|avr\.|mai|juin|juil\.|août|sept\.|oct\.|nov\.|déc\.) [0-9]{4}', text)
-    for award, issuer, _ in matches:
-        awards.append({
-            'Distinction': award.strip(),
-            'Émis par': issuer.strip()
-        })
-    return pd.DataFrame(awards)
+    # Nombre d'abonnés / relations
+    for line in lines:
+        if "abonnés" in line.lower():
+            data["Abonnés"] = re.search(r"(\d[\d\s]*) abonn", line).group(1).strip() if re.search(r"(\d[\d\s]*) abonn", line) else ""
+        if "relations" in line.lower():
+            data["Relations"] = re.search(r"(\d[\d\s]*) relations", line).group(1).strip() if re.search(r"(\d[\d\s]*) relations", line) else ""
 
-def to_excel(dataframes: dict):
-    output = BytesIO()
-    writer = pd.ExcelWriter(output, engine='openpyxl')
-    for name, df in dataframes.items():
-        df.to_excel(writer, sheet_name=name[:31], index=False)
-    writer.close()
-    output.seek(0)
-    return output
+    # Poste actuel
+    poste_ligne = ""
+    for i, line in enumerate(lines):
+        if "professor" in line.lower() or "research" in line.lower() or "ceo" in line.lower() or "founder" in line.lower():
+            poste_ligne = line
+            # On cherche l’établissement juste après
+            if i + 1 < len(lines):
+                data["Employeur"] = lines[i + 1]
+            break
+    data["Poste actuel"] = poste_ligne
 
-if st.button("📤 Extraire et générer Excel"):
-    if not input_text.strip():
-        st.warning("Veuillez coller un texte de profil LinkedIn.")
+    # Contrat et dates
+    for line in lines:
+        if "CDI" in line or "CDD" in line or "Stage" in line or "Temps plein" in line:
+            data["Contrat"] = line
+        if re.search(r"(janv|févr|mars|avr|mai|juin|juil|août|sept|oct|nov|déc).*?\d{4}", line):
+            data["Dates"] = line
+        if re.search(r"[A-Z][a-z]+, [A-Z]", line) or "Finlande" in line or "France" in line:
+            data["Lieu"] = line
+
+    return data
+
+if st.button("📄 Générer le fichier Excel"):
+    if profile_text:
+        extracted = extract_info(profile_text)
+        df = pd.DataFrame([extracted])
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Profil LinkedIn')
+            writer.save()
+            st.download_button(
+                label="📥 Télécharger le fichier Excel",
+                data=buffer.getvalue(),
+                file_name="profil_linkedin.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     else:
-        st.success("✅ Extraction en cours...")
-        dfs = {
-            "Expérience": extract_experiences(input_text),
-            "Formation": extract_education(input_text),
-            "Langues": extract_languages(input_text),
-            "Distinctions": extract_awards(input_text)
-        }
-
-        excel_file = to_excel(dfs)
-
-        st.download_button(
-            label="📥 Télécharger le fichier Excel",
-            data=excel_file,
-            file_name="linkedin_profile_extract.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.warning("Merci de coller un profil avant de générer le fichier.")
