@@ -2,14 +2,13 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("Extracteur itératif de profils LinkedIn - version améliorée titre & localisation")
+st.title("Extracteur itératif de profils LinkedIn - version avec extraction pays")
 
 # Initialisation mémoire session
 if "profiles" not in st.session_state:
     st.session_state["profiles"] = []
 
 def extract_name(text):
-    # Extrait un nom simple (2 mots commençant par majuscule)
     match = re.search(r"^([A-ZÀ-Ÿ][a-zà-ÿ]+\s+[A-ZÀ-Ÿ][a-zà-ÿ]+)", text)
     return match.group(1).strip() if match else ""
 
@@ -26,16 +25,13 @@ def extract_title(text):
         start_pos = relation_search.end()
         substring = text[start_pos:].strip()
 
-        # Coupe strict avant "Coordonnées"
         coord_pos = substring.find("Coordonnées")
         if coord_pos != -1:
             substring = substring[:coord_pos].strip()
 
-        # Enlève tout après dernier pipe (|) souvent localisation
         if "|" in substring:
             substring = substring.rsplit("|", 1)[0].strip()
 
-        # Nettoyage éventuel "niveau 2e" résiduel
         substring = re.sub(r"^niveau \d+[e|ᵉ]\s*", "", substring, flags=re.IGNORECASE)
         
         title_match = substring.strip()
@@ -56,28 +52,36 @@ def extract_location(text):
         if coord_pos != -1:
             before_coord = substring[:coord_pos].strip()
 
-            # Cherche localisation après dernier pipe
             if "|" in before_coord:
                 loc_candidate = before_coord.rsplit("|", 1)[-1].strip()
                 if len(loc_candidate.split()) <= 6:
                     return loc_candidate
 
-            # Cherche localisation après double espace
             parts = re.split(r"\s{2,}", before_coord)
             if len(parts) > 1:
                 loc_candidate = parts[-1].strip()
                 if len(loc_candidate.split()) <= 6:
                     return loc_candidate
 
-            # Sinon renvoie tout avant coordonnées si pas trop long
             if len(before_coord.split()) <= 6:
                 return before_coord
     
-    # Fallback simple (cherche localisation avant "Coordonnées" dans tout le texte)
     loc_match = re.search(r"([A-Za-zÀ-ÿ\s,.\-]{2,})Coordonnées", text)
     if loc_match:
         return loc_match.group(1).strip()
 
+    return ""
+
+def extract_country(text):
+    countries = [
+        "Finlande", "France", "États-Unis", "Japon", "Allemagne", "Canada",
+        "Royaume-Uni", "Espagne", "Italie", "Belgique", "Suisse", "Suède",
+        "Norvège", "Danemark", "Pays-Bas", "Australie", "Chine", "Inde",
+        "Brésil", "Mexique", "Russie", "Turquie"
+    ]
+    for country in countries:
+        if country.lower() in text.lower():
+            return country
     return ""
 
 def extract_link(text):
@@ -94,11 +98,13 @@ def extract_connections(text):
 
 def parse_one_profile(text):
     clean_text = text.replace("\n", " ").strip()
+    location = extract_location(clean_text)
     return {
         "Nom": extract_name(clean_text),
         "Relation": extract_relation(clean_text),
         "Titre": extract_title(clean_text),
-        "Localisation": extract_location(clean_text),
+        "Localisation": location,
+        "Pays": extract_country(location),
         "Lien": extract_link(clean_text),
         "Abonnés": extract_followers(clean_text),
         "Relations": extract_connections(clean_text),
