@@ -2,14 +2,15 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("Extracteur itératif de profils LinkedIn - version améliorée localisation")
+st.title("Extracteur itératif de profils LinkedIn - version améliorée titre & localisation")
 
 # Initialisation mémoire session
 if "profiles" not in st.session_state:
     st.session_state["profiles"] = []
 
 def extract_name(text):
-    match = re.search(r"^([A-Z][a-z]+\s+[A-Z][a-z]+)", text)
+    # Extrait un nom simple (2 mots commençant par majuscule)
+    match = re.search(r"^([A-ZÀ-Ÿ][a-zà-ÿ]+\s+[A-ZÀ-Ÿ][a-zà-ÿ]+)", text)
     return match.group(1).strip() if match else ""
 
 def extract_relation(text):
@@ -24,40 +25,59 @@ def extract_title(text):
     if relation_search:
         start_pos = relation_search.end()
         substring = text[start_pos:].strip()
+
+        # Coupe strict avant "Coordonnées"
+        coord_pos = substring.find("Coordonnées")
+        if coord_pos != -1:
+            substring = substring[:coord_pos].strip()
+
+        # Enlève tout après dernier pipe (|) souvent localisation
+        if "|" in substring:
+            substring = substring.rsplit("|", 1)[0].strip()
+
+        # Nettoyage éventuel "niveau 2e" résiduel
         substring = re.sub(r"^niveau \d+[e|ᵉ]\s*", "", substring, flags=re.IGNORECASE)
-        # On coupe avant "Coordonnées", "abonnés", "relations" s’ils apparaissent
-        end_cut = re.search(r"(Coordonnées|\d+ abonnés|Plus de \d+ relations)", substring)
-        if end_cut:
-            title_match = substring[:end_cut.start()].strip()
-        else:
-            title_match = substring.strip()
+        
+        title_match = substring.strip()
     else:
         title_match = ""
 
     return title_match
 
 def extract_location(text):
-    # Essaie de détecter une localisation en fin de texte
+    relation_pattern = r"(relation de \d+[e|ᵉ])"
+    relation_search = re.search(relation_pattern, text, re.IGNORECASE)
     
-    # On cherche la dernière portion après un pipe '|'
-    parts = text.split('|')
-    last_part = parts[-1].strip() if parts else ""
-    
-    if last_part and re.match(r"^[A-Za-zÀ-ÿ\s,.\-]+$", last_part) and len(last_part.split()) <= 6:
-        return last_part
-    
-    # Sinon, cherche après un double espace
-    double_space_split = re.split(r"\s{2,}", text)
-    if len(double_space_split) > 1:
-        candidate = double_space_split[-1].strip()
-        if re.match(r"^[A-Za-zÀ-ÿ\s,.\-]+$", candidate) and len(candidate.split()) <= 6:
-            return candidate
+    if relation_search:
+        start_pos = relation_search.end()
+        substring = text[start_pos:].strip()
 
-    # Sinon, cherche un motif de localisation à la fin (lettres, espaces, virgules, points, tirets)
-    loc_match = re.search(r"([A-Za-zÀ-ÿ\s,.\-]{2,})$", text.strip())
+        coord_pos = substring.find("Coordonnées")
+        if coord_pos != -1:
+            before_coord = substring[:coord_pos].strip()
+
+            # Cherche localisation après dernier pipe
+            if "|" in before_coord:
+                loc_candidate = before_coord.rsplit("|", 1)[-1].strip()
+                if len(loc_candidate.split()) <= 6:
+                    return loc_candidate
+
+            # Cherche localisation après double espace
+            parts = re.split(r"\s{2,}", before_coord)
+            if len(parts) > 1:
+                loc_candidate = parts[-1].strip()
+                if len(loc_candidate.split()) <= 6:
+                    return loc_candidate
+
+            # Sinon renvoie tout avant coordonnées si pas trop long
+            if len(before_coord.split()) <= 6:
+                return before_coord
+    
+    # Fallback simple (cherche localisation avant "Coordonnées" dans tout le texte)
+    loc_match = re.search(r"([A-Za-zÀ-ÿ\s,.\-]{2,})Coordonnées", text)
     if loc_match:
         return loc_match.group(1).strip()
-    
+
     return ""
 
 def extract_link(text):
