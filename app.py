@@ -2,14 +2,11 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("Extracteur LinkedIn multi-profils (batch)")
+st.title("Extracteur itératif de profils LinkedIn")
 
-st.write("""
-Collez plusieurs en-têtes de profils LinkedIn les uns à la suite des autres,
-séparés par une ligne vide ou `---`.
-""")
-
-input_text = st.text_area("Collez ici plusieurs profils LinkedIn (en-têtes)", height=500)
+# Initialisation mémoire session
+if "profiles" not in st.session_state:
+    st.session_state["profiles"] = []
 
 def extract_name(text):
     match = re.search(r"^([A-Z][a-z]+\s+[A-Z][a-z]+)", text)
@@ -65,25 +62,31 @@ def parse_one_profile(text):
         "Autre Statut": extract_special_status(clean_text),
     }
 
-if st.button("📄 Extraire tous les profils et générer Excel"):
+with st.form("form_profile"):
+    input_text = st.text_area("Collez un profil LinkedIn (en-tête)", height=300)
+    submitted = st.form_submit_button("➕ Ajouter ce profil")
+
+if submitted:
     if input_text.strip():
-        # Séparer en profils (par lignes vides ou ligne '---')
-        raw_profiles = re.split(r"\n\s*\n|---", input_text.strip())
-        profiles_data = []
-
-        for profile_raw in raw_profiles:
-            if profile_raw.strip():
-                profiles_data.append(parse_one_profile(profile_raw))
-
-        df = pd.DataFrame(profiles_data)
-        st.dataframe(df)
-
-        # Export Excel
-        @st.cache_data
-        def convert_df_to_excel(df):
-            return df.to_excel(index=False, engine='openpyxl')
-
-        excel_data = convert_df_to_excel(df)
-        st.download_button("📥 Télécharger le fichier Excel (tous profils)", excel_data, file_name="linkedin_multi_profils.xlsx")
+        profile_data = parse_one_profile(input_text)
+        st.session_state["profiles"].append(profile_data)
+        st.success("Profil ajouté !")
     else:
-        st.warning("⛔ Merci de coller plusieurs profils avant de lancer l'extraction.")
+        st.warning("Merci de coller un profil valide.")
+
+if st.session_state["profiles"]:
+    st.write("### Profils ajoutés jusqu'à présent :")
+    df = pd.DataFrame(st.session_state["profiles"])
+    st.dataframe(df)
+
+    def convert_df_to_excel(df):
+        import io
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        return output.getvalue()
+
+    excel_data = convert_df_to_excel(df)
+    st.download_button("📥 Télécharger tous les profils au format Excel", excel_data, file_name="linkedin_profiles.xlsx")
+else:
+    st.info("Collez un profil et cliquez sur Ajouter pour commencer.")
