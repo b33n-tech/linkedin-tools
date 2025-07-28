@@ -4,7 +4,7 @@ import re
 
 st.title("Analyseur de réactions LinkedIn")
 
-REACTION_TYPES = ["like", "celebrate", "love", "funny", "insightful"]  # liste courante des réactions LinkedIn
+REACTION_TYPES = ["like", "celebrate", "love", "funny", "insightful"]  # types courants de réactions LinkedIn
 
 def parse_reactions(raw_text):
     lines = [line.strip() for line in raw_text.splitlines() if line.strip() != ""]
@@ -15,15 +15,15 @@ def parse_reactions(raw_text):
         # 1) type de réaction
         reaction = lines[i].lower()
         if reaction not in REACTION_TYPES:
-            # si la ligne n'est pas une réaction connue, on skip (ou on pourrait gérer autrement)
             i += 1
             continue
         i += 1
         
-        # 2) nom
+        # 2) nom (nettoyage pour enlever "Voir le profil de ...")
         if i >= len(lines):
             break
-        name = lines[i]
+        name_line = lines[i]
+        name = name_line.split("Voir le profil de")[0].strip()
         i += 1
         
         # 3) position réseau (ex: Out of network · 3e et +)
@@ -31,7 +31,6 @@ def parse_reactions(raw_text):
             position = ""
         else:
             position = lines[i]
-            # Validation simple, souvent cette ligne contient "Out of network", "2e", "3e", etc.
             if not re.search(r"(network|niveau|et|\d+)", position, re.IGNORECASE):
                 position = ""
             else:
