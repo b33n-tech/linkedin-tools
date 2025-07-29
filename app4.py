@@ -103,7 +103,6 @@ if st.button("Analyser le profil"):
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Experiences')
-                writer.save()
             st.download_button(
                 label="📥 Télécharger en XLSX",
                 data=buffer.getvalue(),
