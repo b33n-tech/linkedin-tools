@@ -75,13 +75,17 @@ if st.button("Analyser ce profil"):
             nom = extract_name_from_experience(section_exp)
             data = parse_experiences(section_exp)
             df = pd.DataFrame(data)
-            st.session_state.profiles_data.append({"name": nom, "url": url_input.strip(), "df": df})
+            st.session_state.profiles_data.append({
+                "name": nom,
+                "url": url_input.strip() if url_input else "",
+                "df": df
+            })
             st.success(f"Profil '{nom}' analysé et ajouté.")
 
 if st.session_state.profiles_data:
     st.markdown("### Profils analysés :")
     for i, prof in enumerate(st.session_state.profiles_data):
-        st.markdown(f"**{i+1}. {prof['name']}** — URL: {prof['url'] if prof['url'] else 'Non renseignée'}")
+        st.markdown(f"**{i+1}. {prof.get('name', 'Nom inconnu')}** — URL: {prof.get('url', '') or 'Non renseignée'}")
         st.dataframe(prof['df'])
 
     # Export XLSX multi-feuilles avec récap
@@ -89,14 +93,14 @@ if st.session_state.profiles_data:
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         # Feuille récap
         recap_df = pd.DataFrame([
-            {"Nom": p['name'], "URL": p['url'] if p['url'] else ""}
+            {"Nom": p.get('name', 'Nom inconnu'), "URL": p.get('url', '')}
             for p in st.session_state.profiles_data
         ])
         recap_df.to_excel(writer, sheet_name="Récap Profils", index=False)
 
         # Feuilles expériences
         for prof in st.session_state.profiles_data:
-            sheet_name = prof['name'][:31].replace('/', '-').replace('\\', '-')
+            sheet_name = prof.get('name', 'Profil')[:31].replace('/', '-').replace('\\', '-')
             prof['df'].to_excel(writer, sheet_name=sheet_name, index=False)
 
     st.download_button(
@@ -110,9 +114,9 @@ if st.session_state.profiles_data:
     last = st.session_state.profiles_data[-1]
     csv = last['df'].to_csv(index=False).encode('utf-8')
     st.download_button(
-        label=f"📥 Télécharger le dernier profil ({last['name']}) en CSV",
+        label=f"📥 Télécharger le dernier profil ({last.get('name', 'Nom inconnu')}) en CSV",
         data=csv,
-        file_name=f"profil_{last['name']}.csv",
+        file_name=f"profil_{last.get('name', 'profil')}.csv",
         mime="text/csv"
     )
 
