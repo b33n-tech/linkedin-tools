@@ -5,10 +5,7 @@ import io
 
 def extract_full_experience_section(text):
     match = re.search(r'ExpérienceExpérience(.*?)FormationFormation', text, re.DOTALL)
-    if match:
-        return match.group(1)
-    else:
-        return ""
+    return match.group(1) if match else ""
 
 def extract_name_from_experience(section_text):
     lines = [l.strip() for l in section_text.split('\n') if l.strip()]
@@ -41,6 +38,18 @@ def extract_year(date_str):
     match = re.search(r'(\d{4})', date_str)
     return match.group(1) if match else ""
 
+def is_valid_poste(poste):
+    if len(poste) > 50:
+        return False
+    if re.search(r'[.!?]', poste):
+        return False
+    if re.search(r'\b(selected|managed|developed|designed|served|created|led)\b', poste, re.I):
+        return False
+    return True
+
+def is_valid_date_line(date_line):
+    return bool(re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', date_line, re.I))
+
 def parse_experiences(section_text):
     experiences = []
     blocs = re.split(r'Logo de ', section_text)
@@ -48,36 +57,32 @@ def parse_experiences(section_text):
         lines = [l.strip() for l in bloc.strip().split('\n') if l.strip()]
         if not lines:
             continue
-        
-        # Nom de l'entreprise = première ligne
         entreprise = lines[0]
-        
-        # Vérifier si la ligne suivante est un doublon collé du nom entreprise
         if len(lines) > 1 and lines[1] == entreprise + entreprise:
             start_line = 2
         else:
             start_line = 1
-        
+
         i = start_line
-        while i < len(lines):
-            poste = clean_double_text(lines[i]) if i < len(lines) else ""
-            i += 1
-            
-            date_line = lines[i] if i < len(lines) else ""
-            i += 1
-            
+        while i + 1 < len(lines):
+            poste = clean_double_text(lines[i])
+            date_line = lines[i+1]
+
+            if not (is_valid_poste(poste) and is_valid_date_line(date_line)):
+                i += 1  # avancer d’une ligne pour ne pas rester bloqué
+                continue
+
             type_contrat = ""
             date_debut = ""
             date_fin = ""
             contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', date_line, re.I)
             if contrat_match:
                 type_contrat = contrat_match.group(1)
-            
             date_match = re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', date_line, re.I)
             if date_match:
                 date_debut = date_match.group(1)
                 date_fin = date_match.group(2)
-            
+
             experiences.append({
                 "Entreprise": entreprise,
                 "Poste": poste,
@@ -87,8 +92,9 @@ def parse_experiences(section_text):
                 "Année début": extract_year(date_debut),
                 "Année fin": extract_year(date_fin)
             })
-            
-            # Ignorer les lignes description commençant par '-'
+
+            i += 2
+            # Ignorer les lignes descriptions qui commencent par '-'
             while i < len(lines) and lines[i].startswith('-'):
                 i += 1
 
