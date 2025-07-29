@@ -46,28 +46,57 @@ def parse_experiences(section_text):
     blocs = re.split(r'Logo de ', section_text)
     for bloc in blocs[1:]:
         lines = [l.strip() for l in bloc.strip().split('\n') if l.strip()]
-        entreprise = lines[0] if lines else ""
-        poste = clean_double_text(lines[1]) if len(lines) > 1 else ""
-        type_contrat = ""
-        date_debut = ""
-        date_fin = ""
-        if len(lines) > 2:
-            contrat_line = lines[2]
-            contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', contrat_line, re.I)
-            type_contrat = contrat_match.group(1) if contrat_match else ""
-            date_match = re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', contrat_line, re.I)
-            if date_match:
-                date_debut = date_match.group(1)
-                date_fin = date_match.group(2)
-        experiences.append({
-            "Entreprise": entreprise,
-            "Poste": poste,
-            "Type de contrat": type_contrat,
-            "Date début": date_debut,
-            "Date fin": date_fin,
-            "Année début": extract_year(date_debut),
-            "Année fin": extract_year(date_fin)
-        })
+        if not lines:
+            continue
+        entreprise = lines[0]
+
+        # Trouver indices des lignes poste (doublons collés)
+        poste_indices = []
+        for i in range(1, len(lines)):
+            if i < len(lines) -1 and lines[i] == lines[i+1]:
+                poste_indices.append(i)
+
+        if not poste_indices:
+            poste_indices = [1] if len(lines) > 1 else []
+
+        for idx in poste_indices:
+            poste = clean_double_text(lines[idx]) if idx < len(lines) else ""
+            type_contrat = ""
+            date_debut = ""
+            date_fin = ""
+
+            if idx + 1 < len(lines):
+                contrat_line = lines[idx + 1]
+                contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', contrat_line, re.I)
+                type_contrat = contrat_match.group(1) if contrat_match else ""
+                date_match = re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', contrat_line, re.I)
+                if date_match:
+                    date_debut = date_match.group(1)
+                    date_fin = date_match.group(2)
+
+            description_lines = []
+            desc_start = idx + 2
+            desc_end = len(lines)
+            next_postes = [p for p in poste_indices if p > idx]
+            if next_postes:
+                desc_end = next_postes[0]
+
+            for line in lines[desc_start:desc_end]:
+                if line.startswith('-'):
+                    description_lines.append(line.strip('- ').strip())
+            description = " | ".join(description_lines) if description_lines else ""
+
+            experiences.append({
+                "Entreprise": entreprise,
+                "Poste": poste,
+                "Type de contrat": type_contrat,
+                "Date début": date_debut,
+                "Date fin": date_fin,
+                "Année début": extract_year(date_debut),
+                "Année fin": extract_year(date_fin),
+                "Description": description
+            })
+
     return experiences
 
 if "profiles_data" not in st.session_state:
