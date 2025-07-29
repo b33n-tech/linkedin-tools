@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
+import io
 
 def extract_name(text):
     # Cherche un nom répété deux fois côte à côte (ex : Asmir KhanAsmir Khan)
@@ -89,6 +90,23 @@ if st.button("Analyser le profil"):
             st.markdown("### 🧾 Expériences extraites :")
             st.dataframe(df)
 
-            # Option d'export
+            # Export CSV
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Télécharger en CSV", csv, "experiences_linkedin.csv", "text/csv")
+            st.download_button(
+                label="📥 Télécharger en CSV",
+                data=csv,
+                file_name="experiences_linkedin.csv",
+                mime="text/csv"
+            )
+
+            # Export XLSX
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Experiences')
+                writer.save()
+            st.download_button(
+                label="📥 Télécharger en XLSX",
+                data=buffer.getvalue(),
+                file_name="experiences_linkedin.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
