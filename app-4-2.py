@@ -21,6 +21,11 @@ def clean_double_text(text):
     half = len(text) // 2
     return text[:half] if len(text) % 2 == 0 and text[:half] == text[half:] else text
 
+def extract_year(date_str):
+    # Cherche 4 chiffres consécutifs dans la date (ex: "mars 2021" → 2021)
+    match = re.search(r'(\d{4})', date_str)
+    return match.group(1) if match else ""
+
 def parse_experiences(section_text):
     experiences = []
     blocs = re.split(r'Logo de ', section_text)
@@ -31,7 +36,6 @@ def parse_experiences(section_text):
         type_contrat = ""
         date_debut = ""
         date_fin = ""
-        duree = ""
         if len(lines) > 2:
             contrat_line = lines[2]
             contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', contrat_line, re.I)
@@ -40,24 +44,20 @@ def parse_experiences(section_text):
             if date_match:
                 date_debut = date_match.group(1)
                 date_fin = date_match.group(2)
-            duree_match = re.search(r'·\s*(\d+.*)$', contrat_line)
-            if duree_match:
-                duree = duree_match.group(1)
-        description_lines = [l.strip('- ').strip() for l in lines[3:] if l.startswith('-')]
-        description = " | ".join(description_lines) if description_lines else ""
+        # Plus de description ni durée
         experiences.append({
             "Entreprise": entreprise,
             "Poste": poste,
             "Type de contrat": type_contrat,
             "Date début": date_debut,
             "Date fin": date_fin,
-            "Durée": duree,
-            "Description": description
+            "Année début": extract_year(date_debut),
+            "Année fin": extract_year(date_fin)
         })
     return experiences
 
 if "profiles_data" not in st.session_state:
-    st.session_state.profiles_data = []  # Liste de dict {name, url, df}
+    st.session_state.profiles_data = []
 
 st.title("🔍 Parser LinkedIn multi-profils (copié/collé)")
 
@@ -88,17 +88,14 @@ if st.session_state.profiles_data:
         st.markdown(f"**{i+1}. {prof.get('name', 'Nom inconnu')}** — URL: {prof.get('url', '') or 'Non renseignée'}")
         st.dataframe(prof['df'])
 
-    # Export XLSX multi-feuilles avec récap
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Feuille récap
         recap_df = pd.DataFrame([
             {"Nom": p.get('name', 'Nom inconnu'), "URL": p.get('url', '')}
             for p in st.session_state.profiles_data
         ])
         recap_df.to_excel(writer, sheet_name="Récap Profils", index=False)
 
-        # Feuilles expériences
         for prof in st.session_state.profiles_data:
             sheet_name = prof.get('name', 'Profil')[:31].replace('/', '-').replace('\\', '-')
             prof['df'].to_excel(writer, sheet_name=sheet_name, index=False)
@@ -110,7 +107,6 @@ if st.session_state.profiles_data:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Export CSV du dernier profil uniquement
     last = st.session_state.profiles_data[-1]
     csv = last['df'].to_csv(index=False).encode('utf-8')
     st.download_button(
