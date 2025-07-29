@@ -3,16 +3,21 @@ import pandas as pd
 import re
 import io
 
-def extract_name(text):
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
+def extract_full_experience_section(text):
+    # Extraire la section ExpérienceExpérience jusqu'à FormationFormation
+    match = re.search(r'ExpérienceExpérience(.*?)FormationFormation', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    else:
+        return ""
+
+def extract_name_from_experience(section_text):
+    # Cherche un nom répété deux fois côte à côte dans la section expérience
+    lines = [l.strip() for l in section_text.split('\n') if l.strip()]
     for i in range(len(lines) - 1):
         if lines[i] == lines[i+1]:
             return lines[i]
     return "Nom inconnu"
-
-def extract_experience_section(text):
-    match = re.search(r'ExpérienceExpérience(.*?)FormationFormation', text, re.DOTALL)
-    return match.group(1) if match else ""
 
 def clean_double_text(text):
     half = len(text) // 2
@@ -65,11 +70,11 @@ if st.button("Analyser ce profil"):
     if not text_input.strip():
         st.warning("Merci de coller un texte LinkedIn.")
     else:
-        nom = extract_name(text_input)
-        section_exp = extract_experience_section(text_input)
+        section_exp = extract_full_experience_section(text_input)
         if not section_exp:
             st.error("Section Expérience introuvable.")
         else:
+            nom = extract_name_from_experience(section_exp)
             data = parse_experiences(section_exp)
             df = pd.DataFrame(data)
             # Sauvegarde dans session
@@ -86,7 +91,6 @@ if st.session_state.profiles_data:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         for prof in st.session_state.profiles_data:
-            # Nom de feuille limité à 31 caractères Excel + sans caractères invalides
             sheet_name = prof['name'][:31].replace('/', '-').replace('\\', '-')
             prof['df'].to_excel(writer, sheet_name=sheet_name, index=False)
     st.download_button(
@@ -106,7 +110,6 @@ if st.session_state.profiles_data:
         mime="text/csv"
     )
 
-# Bouton pour tout réinitialiser
 if st.button("🗑️ Réinitialiser tous les profils analysés"):
     st.session_state.profiles_data = []
     st.experimental_rerun()
