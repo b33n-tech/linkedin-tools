@@ -4,7 +4,6 @@ import re
 import io
 
 def extract_full_experience_section(text):
-    # Extraire la section ExpérienceExpérience jusqu'à FormationFormation
     match = re.search(r'ExpérienceExpérience(.*?)FormationFormation', text, re.DOTALL)
     if match:
         return match.group(1)
@@ -12,7 +11,6 @@ def extract_full_experience_section(text):
         return ""
 
 def extract_name_from_experience(section_text):
-    # Cherche un nom répété deux fois côte à côte dans la section expérience
     lines = [l.strip() for l in section_text.split('\n') if l.strip()]
     for i in range(len(lines) - 1):
         if lines[i] == lines[i+1]:
@@ -58,12 +56,12 @@ def parse_experiences(section_text):
         })
     return experiences
 
-# Initialisation stockage en session pour profils multiples
 if "profiles_data" not in st.session_state:
-    st.session_state.profiles_data = []  # Liste de dict {name, df}
+    st.session_state.profiles_data = []  # Liste de dict {name, url, df}
 
 st.title("🔍 Parser LinkedIn multi-profils (copié/collé)")
 
+url_input = st.text_input("URL du profil LinkedIn (optionnel)")
 text_input = st.text_area("Collez ici tout le texte LinkedIn du profil à analyser", height=400)
 
 if st.button("Analyser ce profil"):
@@ -77,24 +75,32 @@ if st.button("Analyser ce profil"):
             nom = extract_name_from_experience(section_exp)
             data = parse_experiences(section_exp)
             df = pd.DataFrame(data)
-            # Sauvegarde dans session
-            st.session_state.profiles_data.append({"name": nom, "df": df})
+            st.session_state.profiles_data.append({"name": nom, "url": url_input.strip(), "df": df})
             st.success(f"Profil '{nom}' analysé et ajouté.")
 
 if st.session_state.profiles_data:
     st.markdown("### Profils analysés :")
     for i, prof in enumerate(st.session_state.profiles_data):
-        st.markdown(f"**{i+1}. {prof['name']}**")
+        st.markdown(f"**{i+1}. {prof['name']}** — URL: {prof['url'] if prof['url'] else 'Non renseignée'}")
         st.dataframe(prof['df'])
 
-    # Export XLSX multi-feuilles
+    # Export XLSX multi-feuilles avec récap
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        # Feuille récap
+        recap_df = pd.DataFrame([
+            {"Nom": p['name'], "URL": p['url'] if p['url'] else ""}
+            for p in st.session_state.profiles_data
+        ])
+        recap_df.to_excel(writer, sheet_name="Récap Profils", index=False)
+
+        # Feuilles expériences
         for prof in st.session_state.profiles_data:
             sheet_name = prof['name'][:31].replace('/', '-').replace('\\', '-')
             prof['df'].to_excel(writer, sheet_name=sheet_name, index=False)
+
     st.download_button(
-        label="📥 Télécharger tous les profils en XLSX (feuilles séparées)",
+        label="📥 Télécharger tous les profils en XLSX (Récap + CVs)",
         data=buffer.getvalue(),
         file_name="profils_linkedin_multi.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
