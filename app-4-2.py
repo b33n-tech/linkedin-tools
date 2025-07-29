@@ -17,12 +17,27 @@ def extract_name_from_experience(section_text):
             return lines[i]
     return "Nom inconnu"
 
+def looks_like_name(line):
+    words = line.strip().split()
+    if len(words) < 2 or len(words) > 3:
+        return False
+    for w in words:
+        if not w[0].isupper() or not w.isalpha():
+            return False
+    return True
+
+def extract_name_general(text):
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    for line in lines:
+        if looks_like_name(line):
+            return line
+    return "Nom inconnu"
+
 def clean_double_text(text):
     half = len(text) // 2
     return text[:half] if len(text) % 2 == 0 and text[:half] == text[half:] else text
 
 def extract_year(date_str):
-    # Cherche 4 chiffres consécutifs dans la date (ex: "mars 2021" → 2021)
     match = re.search(r'(\d{4})', date_str)
     return match.group(1) if match else ""
 
@@ -44,7 +59,6 @@ def parse_experiences(section_text):
             if date_match:
                 date_debut = date_match.group(1)
                 date_fin = date_match.group(2)
-        # Plus de description ni durée
         experiences.append({
             "Entreprise": entreprise,
             "Poste": poste,
@@ -73,6 +87,8 @@ if st.button("Analyser ce profil"):
             st.error("Section Expérience introuvable.")
         else:
             nom = extract_name_from_experience(section_exp)
+            if nom == "Nom inconnu":
+                nom = extract_name_general(text_input)
             data = parse_experiences(section_exp)
             df = pd.DataFrame(data)
             st.session_state.profiles_data.append({
