@@ -48,44 +48,36 @@ def parse_experiences(section_text):
         lines = [l.strip() for l in bloc.strip().split('\n') if l.strip()]
         if not lines:
             continue
+        
+        # Nom de l'entreprise = première ligne
         entreprise = lines[0]
-
-        # Trouver indices des lignes poste (doublons collés)
-        poste_indices = []
-        for i in range(1, len(lines)):
-            if i < len(lines) -1 and lines[i] == lines[i+1]:
-                poste_indices.append(i)
-
-        if not poste_indices:
-            poste_indices = [1] if len(lines) > 1 else []
-
-        for idx in poste_indices:
-            poste = clean_double_text(lines[idx]) if idx < len(lines) else ""
+        
+        # Vérifier si la ligne suivante est un doublon collé du nom entreprise
+        if len(lines) > 1 and lines[1] == entreprise + entreprise:
+            start_line = 2
+        else:
+            start_line = 1
+        
+        i = start_line
+        while i < len(lines):
+            poste = clean_double_text(lines[i]) if i < len(lines) else ""
+            i += 1
+            
+            date_line = lines[i] if i < len(lines) else ""
+            i += 1
+            
             type_contrat = ""
             date_debut = ""
             date_fin = ""
-
-            if idx + 1 < len(lines):
-                contrat_line = lines[idx + 1]
-                contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', contrat_line, re.I)
-                type_contrat = contrat_match.group(1) if contrat_match else ""
-                date_match = re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', contrat_line, re.I)
-                if date_match:
-                    date_debut = date_match.group(1)
-                    date_fin = date_match.group(2)
-
-            description_lines = []
-            desc_start = idx + 2
-            desc_end = len(lines)
-            next_postes = [p for p in poste_indices if p > idx]
-            if next_postes:
-                desc_end = next_postes[0]
-
-            for line in lines[desc_start:desc_end]:
-                if line.startswith('-'):
-                    description_lines.append(line.strip('- ').strip())
-            description = " | ".join(description_lines) if description_lines else ""
-
+            contrat_match = re.search(r'·\s*(Stage|Temps plein|Temps partiel|CDI|CDD)', date_line, re.I)
+            if contrat_match:
+                type_contrat = contrat_match.group(1)
+            
+            date_match = re.search(r'(\w+\.? \d{4})\s*-\s*(aujourd’hui|\w+\.? \d{4})', date_line, re.I)
+            if date_match:
+                date_debut = date_match.group(1)
+                date_fin = date_match.group(2)
+            
             experiences.append({
                 "Entreprise": entreprise,
                 "Poste": poste,
@@ -93,9 +85,12 @@ def parse_experiences(section_text):
                 "Date début": date_debut,
                 "Date fin": date_fin,
                 "Année début": extract_year(date_debut),
-                "Année fin": extract_year(date_fin),
-                "Description": description
+                "Année fin": extract_year(date_fin)
             })
+            
+            # Ignorer les lignes description commençant par '-'
+            while i < len(lines) and lines[i].startswith('-'):
+                i += 1
 
     return experiences
 
